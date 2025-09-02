@@ -1,0 +1,49 @@
+{
+  "name": "mcp-server-client",
+  "version": "1.0.0",
+  "description": "MCP Server providing HTTP request and SSH command execution capabilities",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "mcp-server-client": "bin/mcp-server-client",
+    "mcpsc": "bin/mcp-server-client"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "jest",
+    "test:unit": "jest test/unit",
+    "test:integration": "jest test/integration",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write src test",
+    "format:check": "prettier --check src test"
+  },
+  "keywords": [
+    "mcp",
+    "server",
+    "http",
+    "ssh",
+    "api",
+    "automation"
+  ],
+  "author": "nomagicln",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nomagicln/mcp-server-client.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "axios": "^1.6.0",
+    "ssh2": "^1.14.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.0"
+  }
+}
