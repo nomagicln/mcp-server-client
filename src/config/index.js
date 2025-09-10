@@ -2,6 +2,17 @@
  * 配置文件
  */
 
+// 工具：将环境变量中的逗号分隔列表拆分为字符串数组（trim + 过滤空项）
+function splitEnvList(list) {
+  if (list === null || list === undefined) {
+    return [];
+  }
+  return String(list)
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   // HTTP 配置
   http: {
@@ -26,19 +37,13 @@ export const config = {
         process.env.MCP_SSH_ALGORITHMS_FALLBACK !== '0' /* 默认开启 */,
       // 逗号分隔字符串解析为数组的工具
       _parse(list) {
-        return String(list || '')
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean);
+        return splitEnvList(list);
       },
       // 各类算法列表可通过环境变量覆盖
       kex: (() => {
         const v = process.env.MCP_SSH_KEX_ALGORITHMS;
         return v
-          ? v
-              .split(',')
-              .map(s => s.trim())
-              .filter(Boolean)
+          ? splitEnvList(v)
           : [
               'curve25519-sha256',
               'curve25519-sha256@libssh.org',
@@ -52,10 +57,7 @@ export const config = {
       cipher: (() => {
         const v = process.env.MCP_SSH_CIPHER_ALGORITHMS;
         return v
-          ? v
-              .split(',')
-              .map(s => s.trim())
-              .filter(Boolean)
+          ? splitEnvList(v)
           : [
               'aes128-gcm@openssh.com',
               'aes256-gcm@openssh.com',
@@ -65,21 +67,11 @@ export const config = {
       })(),
       hmac: (() => {
         const v = process.env.MCP_SSH_HMAC_ALGORITHMS;
-        return v
-          ? v
-              .split(',')
-              .map(s => s.trim())
-              .filter(Boolean)
-          : ['hmac-sha2-256', 'hmac-sha2-512'];
+        return v ? splitEnvList(v) : ['hmac-sha2-256', 'hmac-sha2-512'];
       })(),
       serverHostKey: (() => {
         const v = process.env.MCP_SSH_HOSTKEY_ALGORITHMS;
-        return v
-          ? v
-              .split(',')
-              .map(s => s.trim())
-              .filter(Boolean)
-          : undefined;
+        return v ? parseCsv(v) : undefined;
       })(),
     },
   },
@@ -226,25 +218,20 @@ function reapplyEnvOverrides(cfg) {
       process.env.MCP_SSH_ALGORITHMS_FALLBACK !== '0';
   }
   if (process.env.MCP_SSH_KEX_ALGORITHMS) {
-    cfg.ssh.algorithms.kex = process.env.MCP_SSH_KEX_ALGORITHMS.split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
+    cfg.ssh.algorithms.kex = splitEnvList(process.env.MCP_SSH_KEX_ALGORITHMS);
   }
   if (process.env.MCP_SSH_CIPHER_ALGORITHMS) {
-    cfg.ssh.algorithms.cipher = process.env.MCP_SSH_CIPHER_ALGORITHMS.split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
+    cfg.ssh.algorithms.cipher = splitEnvList(
+      process.env.MCP_SSH_CIPHER_ALGORITHMS,
+    );
   }
   if (process.env.MCP_SSH_HMAC_ALGORITHMS) {
-    cfg.ssh.algorithms.hmac = process.env.MCP_SSH_HMAC_ALGORITHMS.split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
+    cfg.ssh.algorithms.hmac = splitEnvList(process.env.MCP_SSH_HMAC_ALGORITHMS);
   }
   if (process.env.MCP_SSH_HOSTKEY_ALGORITHMS) {
-    cfg.ssh.algorithms.serverHostKey =
-      process.env.MCP_SSH_HOSTKEY_ALGORITHMS.split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
+    cfg.ssh.algorithms.serverHostKey = splitEnvList(
+      process.env.MCP_SSH_HOSTKEY_ALGORITHMS,
+    );
   }
 
   // 自定义校验器

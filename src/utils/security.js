@@ -5,6 +5,7 @@
  */
 
 import { createRequire } from 'module';
+import net from 'node:net';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { ErrorHandler } from './error-handler.js';
@@ -170,15 +171,62 @@ export class SecurityValidator {
     },
 
     isPrivateIP(hostname) {
-      // IPv4 私有地址范围
-      const privateRanges = [
-        /^10\./, // 10.0.0.0/8
-        /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
-        /^192\.168\./, // 192.168.0.0/16
-        /^169\.254\./, // 链路本地地址
-      ];
+      // 尝试识别 IPv4 和 IPv6 的私有/本地地址。
+      // 使用 Node 的 net.isIP 来区分 IP 类型（返回 0/4/6）。
+      try {
+        const ipVersion = net.isIP(hostname);
 
-      return privateRanges.some(range => range.test(hostname));
+        if (ipVersion === 4) {
+          // IPv4 私有地址范围
+          const privateRanges = [
+            /^10\./, // 10.0.0.0/8
+            /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
+            /^192\.168\./, // 192.168.0.0/16
+            /^169\.254\./, // 链路本地地址
+            /^127\./, // 回环
+          ];
+          return privateRanges.some(range => range.test(hostname));
+        }
+
+        if (ipVersion === 6) {
+          // IPv6 本地/私有前缀（非穷尽）：
+          // - ::1 回环
+          // - fe80::/10 链路本地
+          // - fc00::/7 私有（包括 fd00::/8）
+          // - fec0::/10（已废弃的站点本地地址，仍然视作私有）
+          const lc = hostname.toLowerCase();
+          if (lc === '::1') {
+            return true;
+          }
+          if (lc.startsWith('fe80:')) {
+            return true; // 链路本地
+          }
+          if (lc.startsWith('fc') || lc.startsWith('fd')) {
+            return true; // ULA
+          }
+          if (lc.startsWith('fec0:')) {
+            return true; // 旧的站点本地（视作私有）
+          }
+
+          // 还要检测 IPv4-mapped IPv6 地址 ::ffff:a.b.c.d
+          const ipv4Mapped = lc.match(
+            /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/,
+          );
+          if (ipv4Mapped) {
+            const v4 = ipv4Mapped[1];
+            return SecurityValidator.__builtins.isPrivateIP(v4);
+          }
+
+          return false;
+        }
+
+        // 不是一个直接的 IP（可能是主机名），对于主机名我们无法精确判断私有性，
+        // 保守做法是返回 false（由上层逻辑结合 allowLocal* 配置进一步判断）。
+        return false;
+      } catch (e) {
+        // 在任何异常情况下，默认不认为是私有 IP，以避免误阻断外部请求。
+        return false;
+      }
     },
 
     validateHeaders(headers) {
