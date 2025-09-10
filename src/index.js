@@ -14,7 +14,9 @@ import { HttpTool } from './tools/http.js';
 import { SshTool } from './tools/ssh.js';
 
 // 导入配置和传输
-import { config } from './config/index.js';
+import { applyLoadedConfig, config } from './config/index.js';
+import { resolveConfig } from './config/loader.js';
+import { startConfigWatcher } from './config/watcher.js';
 import { TransportFactory } from './transports/index.js';
 
 // 导入工具函数
@@ -29,6 +31,8 @@ class McpServerClient {
     this.tools = {};
     this.transport = null;
     this.transportType = transportType || config.transport.default;
+    this.loadedConfigMeta = null;
+    this.configWatcher = null;
     this.setupTools();
   }
 
@@ -47,6 +51,59 @@ class McpServerClient {
     try {
       logger.info('正在启动 MCP Server Client...');
       logger.info(`使用传输方式: ${this.transportType}`);
+
+      // 配置加载（支持 --config / MCP_CONFIG / 默认搜索）
+      const cliConfigPath = getConfigFromArgs();
+      const envConfigPath = process.env.MCP_CONFIG;
+      try {
+        const { config: fileConfig, meta } = await resolveConfig({
+          cliPath: cliConfigPath,
+          envPath: envConfigPath,
+          allowFallback: true,
+        });
+        applyLoadedConfig(fileConfig);
+        this.loadedConfigMeta = meta;
+        logger.info('配置加载完成', {
+          source: meta.source,
+          path: meta.path,
+          duration: meta.duration,
+        });
+      } catch (e) {
+        const isCI = String(process.env.CI).toLowerCase() === 'true';
+        logger.error('配置加载失败', {
+          reason: e.message,
+          source: e.source,
+          path: e.path,
+        });
+        if (isCI) {
+          throw e; // CI 下立即失败
+        } else {
+          logger.warn('继续使用内置默认配置并启动（本地环境）');
+        }
+      }
+
+      // 可选：启动配置热监听
+      if (process.env.MCP_WATCH_CONFIG === '1') {
+        this.configWatcher = await startConfigWatcher({
+          cliPath: getConfigFromArgs(),
+          envPath: process.env.MCP_CONFIG,
+          onApply: (fileConfig, meta) => {
+            applyLoadedConfig(fileConfig);
+            this.loadedConfigMeta = meta;
+            logger.info('配置热更新完成', {
+              source: meta.source,
+              path: meta.path,
+              duration: meta.duration,
+            });
+          },
+          onError: err => {
+            logger.warn('配置热更新失败，保持上次有效配置', {
+              reason: err.message,
+            });
+          },
+        });
+        logger.info('配置热监听已启动');
+      }
 
       // 创建服务器实例
       this.server = new Server({
@@ -71,8 +128,8 @@ class McpServerClient {
       this.displayConnectionInfo();
     } catch (error) {
       logger.error('服务器启动失败:', error);
-      console.error('详细错误信息:', error.message);
-      console.error('错误堆栈:', error.stack);
+      logger.error('详细错误信息:', { message: error.message });
+      logger.error('错误堆栈:', { stack: error.stack });
       process.exit(1);
     }
   }
@@ -106,7 +163,8 @@ class McpServerClient {
                         'HEAD',
                         'OPTIONS',
                       ],
-                      description: 'HTTP 请求方法',
+                      description: 'HTTP 请求方法（可选，默认 GET）',
+                      default: 'GET',
                     },
                     url: {
                       type: 'string',
@@ -129,7 +187,7 @@ class McpServerClient {
                       default: 30000,
                     },
                   },
-                  required: ['method', 'url'],
+                  required: ['url'],
                 },
               },
               {
@@ -293,30 +351,30 @@ class McpServerClient {
 
     switch (this.transportType) {
       case 'stdio':
-        console.log('✅ STDIO 传输已启动');
-        console.log('📝 服务器通过标准输入输出进行通信');
+        logger.info('✅ STDIO 传输已启动');
+        logger.info('📝 服务器通过标准输入输出进行通信');
         break;
 
       case 'sse':
-        console.log('✅ SSE 传输已启动');
-        console.log(
+        logger.info('✅ SSE 传输已启动');
+        logger.info(
           `🌐 SSE 连接端点: http://${transportConfig.host}:${transportConfig.port}${transportConfig.endpoint}`,
         );
-        console.log(
+        logger.info(
           `📮 消息发送端点: http://${transportConfig.host}:${transportConfig.port}${transportConfig.postEndpoint}`,
         );
         break;
 
       case 'http':
-        console.log('✅ HTTP 传输已启动');
-        console.log(
+        logger.info('✅ HTTP 传输已启动');
+        logger.info(
           `🌐 HTTP 端点: http://${transportConfig.host}:${transportConfig.port}${transportConfig.endpoint}`,
         );
-        console.log('📝 客户端可通过 POST 请求发送消息');
+        logger.info('📝 客户端可通过 POST 请求发送消息');
         break;
 
       default:
-        console.log(`✅ ${this.transportType} 传输已启动`);
+        logger.info(`✅ ${this.transportType} 传输已启动`);
     }
   }
 
@@ -325,6 +383,13 @@ class McpServerClient {
    */
   async stop() {
     try {
+      // 停止配置监听
+      if (
+        this.configWatcher &&
+        typeof this.configWatcher.close === 'function'
+      ) {
+        await this.configWatcher.close();
+      }
       // 清理 SSH 连接
       if (this.tools.ssh && typeof this.tools.ssh.cleanup === 'function') {
         this.tools.ssh.cleanup();
@@ -360,6 +425,16 @@ const getTransportFromArgs = () => {
 
   // 检查环境变量
   return process.env.MCP_TRANSPORT || config.transport.default;
+};
+
+// 解析命令行参数获取配置文件路径
+const getConfigFromArgs = () => {
+  const args = process.argv.slice(2);
+  const idx = args.findIndex(arg => arg === '--config');
+  if (idx !== -1 && args[idx + 1]) {
+    return args[idx + 1];
+  }
+  return undefined;
 };
 
 // 创建服务器实例

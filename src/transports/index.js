@@ -70,9 +70,13 @@ class StreamableHttpTransport {
    * 验证会话
    */
   validateSession(sessionId) {
-    if (!sessionId) return false;
+    if (!sessionId) {
+      return false;
+    }
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session) {
+      return false;
+    }
 
     // 更新最后活动时间
     session.lastActivity = new Date();
@@ -83,10 +87,14 @@ class StreamableHttpTransport {
    * 终止会话
    */
   terminateSession(sessionId) {
-    if (!sessionId) return false;
+    if (!sessionId) {
+      return false;
+    }
 
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session) {
+      return false;
+    }
 
     // 关闭与该会话相关的所有流
     for (const [streamId, streamData] of this.activeStreams) {
@@ -344,7 +352,7 @@ class StreamableHttpTransport {
    */
   async createSSEStream(req, res, initialMessages = [], sessionId = null) {
     const streamId = `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    let eventId = 1;
+    const eventId = 1;
 
     // 设置 SSE 头
     const headers = {

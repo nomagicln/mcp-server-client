@@ -44,7 +44,8 @@ describe('MCP Server 集成测试', () => {
       // 启动服务器进程
       serverProcess = spawn('node', ['src/index.js'], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, LOG_LEVEL: 'error' },
+        // 使用 info 级别以便通过日志检测就绪（日志现输出到 stderr）
+        env: { ...process.env, LOG_LEVEL: 'info' },
       });
 
       let startupComplete = false;
@@ -58,17 +59,12 @@ describe('MCP Server 集成测试', () => {
         }
       }, 10000); // 10秒超时
 
-      // 监听标准输出
-      serverProcess.stdout.on('data', data => {
+      // 监听标准错误（日志输出改为 stderr）
+      serverProcess.stderr.on('data', data => {
         const output = data.toString();
         if (output.includes('MCP Server Client 已启动并准备就绪')) {
           serverReady = true;
         }
-      });
-
-      // 监听标准错误
-      serverProcess.stderr.on('data', data => {
-        const output = data.toString();
         // 检查是否有严重错误
         if (
           output.includes('Error:') &&
@@ -119,7 +115,6 @@ describe('MCP Server 集成测试', () => {
         env: { ...process.env, LOG_LEVEL: 'error' },
       });
 
-      let serverReady = false;
       let protocolTestCompleted = false;
 
       // 设置超时
@@ -130,44 +125,42 @@ describe('MCP Server 集成测试', () => {
         }
       }, 10000);
 
-      // 监听标准输出
+      // 监听标准输出（JSON-RPC 响应在 stdout）
       serverProcess.stdout.on('data', data => {
         const output = data.toString();
-        if (output.includes('MCP Server Client 已启动并准备就绪')) {
-          serverReady = true;
-
-          // 发送一个简单的 JSON-RPC 消息测试协议
-          const initMessage = {
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: {
-              protocolVersion: '2024-11-05',
-              capabilities: {},
-              clientInfo: {
-                name: 'test-client',
-                version: '1.0.0',
-              },
-            },
-          };
-
-          try {
-            serverProcess.stdin.write(JSON.stringify(initMessage) + '\n');
-          } catch (error) {
-            clearTimeout(timeout);
-            protocolTestCompleted = true;
-            reject(new Error(`发送消息失败: ${error.message}`));
-          }
-        }
-
         // 检查是否有响应输出
-        if (serverReady && output.includes('protocolVersion')) {
+        if (output.includes('protocolVersion')) {
           clearTimeout(timeout);
           protocolTestCompleted = true;
           serverProcess.kill('SIGTERM');
           resolve();
         }
       });
+
+      // 稍等片刻后发送 initialize（无需依赖启动日志）
+      setTimeout(() => {
+        if (protocolTestCompleted) return;
+        const initMessage = {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: {
+              name: 'test-client',
+              version: '1.0.0',
+            },
+          },
+        };
+        try {
+          serverProcess.stdin.write(JSON.stringify(initMessage) + '\n');
+        } catch (error) {
+          clearTimeout(timeout);
+          protocolTestCompleted = true;
+          reject(new Error(`发送消息失败: ${error.message}`));
+        }
+      }, 300);
 
       // 监听错误
       serverProcess.stderr.on('data', data => {
@@ -224,8 +217,8 @@ describe('MCP Server 集成测试', () => {
         }
       }, 10000);
 
-      // 监听标准输出
-      serverProcess.stdout.on('data', data => {
+      // 监听标准错误（日志输出改为 stderr）
+      serverProcess.stderr.on('data', data => {
         const output = data.toString();
 
         // 检查工具注册完成

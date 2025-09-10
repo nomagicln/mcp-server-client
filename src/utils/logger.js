@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * 日志工具
  */
@@ -73,7 +74,8 @@ class Logger {
    */
   error(message, meta = {}) {
     if (this.shouldLog('error')) {
-      console.error(this.formatMessage('error', message, meta));
+      // 使用 stderr，避免在 stdio 传输中污染 JSON-RPC 的 stdout
+      process.stderr.write(this.formatMessage('error', message, meta) + '\n');
     }
   }
 
@@ -82,7 +84,8 @@ class Logger {
    */
   warn(message, meta = {}) {
     if (this.shouldLog('warn')) {
-      console.warn(this.formatMessage('warn', message, meta));
+      // 统一写入 stderr
+      process.stderr.write(this.formatMessage('warn', message, meta) + '\n');
     }
   }
 
@@ -91,7 +94,8 @@ class Logger {
    */
   info(message, meta = {}) {
     if (this.shouldLog('info')) {
-      console.log(this.formatMessage('info', message, meta));
+      // 统一写入 stderr，避免向 stdout 输出
+      process.stderr.write(this.formatMessage('info', message, meta) + '\n');
     }
   }
 
@@ -100,7 +104,8 @@ class Logger {
    */
   debug(message, meta = {}) {
     if (this.shouldLog('debug')) {
-      console.log(this.formatMessage('debug', message, meta));
+      // 统一写入 stderr
+      process.stderr.write(this.formatMessage('debug', message, meta) + '\n');
     }
   }
 }

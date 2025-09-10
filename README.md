@@ -19,6 +19,7 @@
 - **安全防护**：危险命令检测、命令长度限制
 - **超时控制**：连接超时和命令执行超时
 - **连接优化**：自动连接清理和重用
+- **算法可配置**：支持自定义 KEX/Cipher/HMAC/HostKey 算法清单与失败回退
 
 ### 🚀 多种传输方式支持
 
@@ -33,6 +34,7 @@
 - **恶意内容检测**：SQL 注入、XSS 脚本检测
 - **危险命令拦截**：防止执行破坏性系统命令
 - **大小限制**：请求体和响应体大小控制
+- **自定义安全校验器（可插拔）**：支持用户提供脚本扩展/覆盖默认校验（append/prepend/override）
 
 ### 📊 错误处理
 
@@ -135,7 +137,48 @@ make uninstall-global
 
 ## 配置说明
 
-服务器配置位于 `src/config/index.js`：
+服务器配置位于 `src/config/index.js`，并支持从外部文件加载与热更新：
+
+### 配置加载优先级
+
+1) 启动参数 `--config <path>` 指定的配置文件
+2) 环境变量 `MCP_CONFIG` 指定的配置文件
+3) 默认搜索位置（依次查找以下目录中的文件，先找到先用）：
+
+- 当前工作目录（CWD）
+- 用户配置目录：`~/.config/mcp-server-client`
+- 系统配置目录：`/etc/mcp-server-client`
+
+支持的文件名（按优先级从上到下，无强制先后，仅第一个被找到的会被使用）：
+
+- `mcp.config.json`
+- `mcp.config.js`
+- `mcp.config.mjs`
+- `mcp.config.cjs`
+
+JS 配置文件需默认导出配置对象（ESM/CJS 均支持）。JSON 文件需为有效的 JSON 对象。
+
+### 启用配置热更新（可选）
+
+两种方式任选其一：
+
+- 设置环境变量：`MCP_WATCH_CONFIG=1`
+- CLI 参数：在 `start` 命令后添加 `-w` 或 `--watch-config`
+
+当检测到配置文件变更，将尝试解析与校验：
+
+- 成功：应用新配置并继续运行
+- 失败：保留上一次有效配置并记录警告
+
+示例：
+
+```bash
+# 使用指定配置并开启热更新
+mcp-server-client start --config ./mcp.config.js -w
+
+# 或使用环境变量
+MCP_CONFIG=./mcp.config.json MCP_WATCH_CONFIG=1 mcp-server-client start
+```
 
 ```javascript
 export const config = {
@@ -300,7 +343,7 @@ MCP_HTTP_PORT=3006 mcp-server-client start -t http
 
 ### 项目结构
 
-```
+```text
 src/
 ├── config/           # 配置文件
 │   └── index.js
@@ -359,6 +402,85 @@ npm run format
 | `MCP_SSE_HOST` | SSE 监听地址 | `localhost` |
 | `MCP_HTTP_PORT` | HTTP 服务端口 | `3002` |
 | `MCP_HTTP_HOST` | HTTP 监听地址 | `localhost` |
+| `MCP_CONFIG` | 外部配置文件路径（覆盖默认搜索） | - |
+| `MCP_WATCH_CONFIG` | 启用配置热更新（`1` 表示启用） | `0` |
+| `MCP_SECURITY_VALIDATORS_ENABLED` | 启用自定义安全校验器（`1` 表示启用） | `false` |
+| `MCP_SECURITY_VALIDATORS` | 自定义校验器脚本路径（相对 `process.cwd()` 或绝对路径） | - |
+| `MCP_SECURITY_VALIDATORS_STRATEGY` | 组合策略：`append`（默认）/`prepend`/`override` | `append` |
+| `MCP_SSH_ALGORITHMS_ENABLED` | 启用 SSH 算法自定义（`1` 启用） | `false` |
+| `MCP_SSH_ALGORITHMS_FALLBACK` | 自定义算法失败时是否回退默认算法（`0` 关闭） | `true` |
+| `MCP_SSH_KEX_ALGORITHMS` | 逗号分隔的 KEX 列表 | 见下文默认 |
+| `MCP_SSH_CIPHER_ALGORITHMS` | 逗号分隔的 Cipher 列表 | 见下文默认 |
+| `MCP_SSH_HMAC_ALGORITHMS` | 逗号分隔的 HMAC 列表 | 见下文默认 |
+| `MCP_SSH_HOSTKEY_ALGORITHMS` | 逗号分隔的 HostKey 列表 | 未设置则沿用 ssh2 默认 |
+
+### SSH 算法配置
+
+当目标主机对算法有特殊要求时，可以启用自定义算法清单：
+
+```bash
+export MCP_SSH_ALGORITHMS_ENABLED=1
+export MCP_SSH_ALGORITHMS_FALLBACK=1   # 遇到算法不匹配时自动回退为 ssh2 默认算法并重试
+
+# 可按需覆盖，未设置则使用项目内置的安全兼容默认值
+export MCP_SSH_KEX_ALGORITHMS="curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha1"
+export MCP_SSH_CIPHER_ALGORITHMS="aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes256-ctr"
+export MCP_SSH_HMAC_ALGORITHMS="hmac-sha2-256,hmac-sha2-512"
+# 如目标要求特定 HostKey 算法，可设置如下（示例）：
+export MCP_SSH_HOSTKEY_ALGORITHMS="ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512"
+```
+
+内置的默认算法（当未显式配置但仍启用自定义时）为：
+
+- KEX: `curve25519-sha256`、`curve25519-sha256@libssh.org`、`ecdh-sha2-nistp256`、`ecdh-sha2-nistp384`、`ecdh-sha2-nistp521`、`diffie-hellman-group-exchange-sha256`、`diffie-hellman-group14-sha1`
+- Cipher: `aes128-gcm@openssh.com`、`aes256-gcm@openssh.com`、`aes128-ctr`、`aes256-ctr`
+- HMAC: `hmac-sha2-256`、`hmac-sha2-512`
+
+注意：某些组合在旧环境上不被支持，建议保留回退（MCP_SSH_ALGORITHMS_FALLBACK=1）。
+
+## 自定义安全校验器（可插拔）
+
+当默认安全策略过于严格或需要补充企业特定规则时，可通过自定义脚本扩展/覆盖 `SecurityValidator` 的各类校验。
+
+- 支持的钩子（任选实现，未实现的沿用内置）：
+  - `validateUrl`, `validateHeaders`, `validateRequestBody`, `validateSshCommand`, `validateSshHost`, `containsMaliciousChars`, `containsMaliciousContent`, `sanitizeInput`, `isPrivateIP`
+- 组合策略：
+  - `append`（默认）：先执行内置，再执行自定义
+  - `prepend`：先执行自定义，再执行内置
+  - `override`：仅执行自定义
+- 返回/抛错约定：
+  - 返回 `true` 表示放行，返回 `false` 表示“已处理且无需后续”（会跳过后续同名校验）
+  - 抛出错误（推荐使用 `ErrorHandler.createSecurityError`）表示阻断
+
+启用方式（环境变量示例）：
+
+```bash
+export MCP_SECURITY_VALIDATORS_ENABLED=1
+export MCP_SECURITY_VALIDATORS=./validators/security.custom.js
+export MCP_SECURITY_VALIDATORS_STRATEGY=append
+```
+
+自定义脚本示例（仅支持 CommonJS 模块）：
+
+```js
+// validators/security.custom.js (CJS)
+module.exports = {
+  // 放宽示例：允许 http://localhost 的 URL
+  validateUrl(url) {
+    if (url.startsWith('http://localhost')) return true;
+    // 未处理则交由后续（append）或内置（prepend）继续
+    return true;
+  },
+
+  // 也可实现 validateHeaders / validateRequestBody 等其他钩子
+};
+```
+
+注意事项：
+
+- 仅支持 CommonJS 输出（`module.exports = { ... }`）；ESM 暂不支持
+- 相对路径以 `process.cwd()` 为基准解析
+- 任何加载失败将回退到内置校验并输出告警日志
 
 ## 部署建议
 

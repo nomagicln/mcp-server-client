@@ -120,62 +120,127 @@ export class SshTool {
    */
   async createConnection(host, port, username, password) {
     return new Promise((resolve, reject) => {
-      const client = new Client();
+      let retriedWithoutCustomAlgorithms = false;
+      const algConfig = config?.ssh?.algorithms || { enabled: false };
+      const allowFallback = algConfig?.fallbackOnError !== false; // 默认允许回退
 
-      const timeout = setTimeout(() => {
-        client.end();
-        reject(new Error(`连接超时: ${config.ssh.readyTimeout}ms`));
-      }, config.ssh.readyTimeout);
+      const attemptConnect = (useCustomAlgorithms = true) => {
+        const client = new Client();
 
-      client.on('ready', () => {
-        clearTimeout(timeout);
-        logger.debug('SSH 连接已建立', { host, port, username });
-        resolve(client);
-      });
+        const timeout = setTimeout(() => {
+          try {
+            client.end();
+          } catch (_) {}
+          reject(new Error(`连接超时: ${config.ssh.readyTimeout}ms`));
+        }, config.ssh.readyTimeout);
 
-      client.on('error', error => {
-        clearTimeout(timeout);
-        logger.error('SSH 连接失败', {
+        const cleanup = () => {
+          clearTimeout(timeout);
+          client.removeAllListeners();
+        };
+
+        client.on('ready', () => {
+          cleanup();
+          logger.debug('SSH 连接已建立', { host, port, username });
+          resolve(client);
+        });
+
+        client.on('error', error => {
+          cleanup();
+          logger.error('SSH 连接失败', {
+            host,
+            port,
+            username,
+            error: error.message,
+          });
+
+          const msg = String(error?.message || '').toLowerCase();
+          const maybeAlgProblem =
+            msg.includes('unsupported algorithm') ||
+            msg.includes('no matching key exchange') ||
+            msg.includes('handshake failed');
+
+          if (
+            useCustomAlgorithms &&
+            allowFallback &&
+            !retriedWithoutCustomAlgorithms &&
+            maybeAlgProblem
+          ) {
+            retriedWithoutCustomAlgorithms = true;
+            logger.warn('检测到算法不兼容，回退为 ssh2 默认算法后重试');
+            return attemptConnect(false);
+          }
+
+          reject(new Error(`SSH 连接失败: ${error.message}`));
+        });
+
+        client.on('close', () => {
+          logger.debug('SSH 连接已关闭', { host, port, username });
+        });
+
+        // 基础配置
+        const baseConfig = {
           host,
           port,
           username,
-          error: error.message,
+          password,
+          readyTimeout: config.ssh.readyTimeout,
+          keepaliveInterval: config.ssh.keepaliveInterval,
+          keepaliveCountMax: 3,
+        };
+
+        // 仅在启用自定义算法时提供算法清单（优先使用配置）
+        if (useCustomAlgorithms && algConfig?.enabled) {
+          const algorithms = {};
+          if (algConfig.kex && algConfig.kex.length) {
+            algorithms.kex = algConfig.kex;
+          }
+          if (algConfig.cipher && algConfig.cipher.length) {
+            algorithms.cipher = algConfig.cipher;
+          }
+          if (algConfig.hmac && algConfig.hmac.length) {
+            algorithms.hmac = algConfig.hmac;
+          }
+          if (algConfig.serverHostKey && algConfig.serverHostKey.length) {
+            algorithms.serverHostKey = algConfig.serverHostKey;
+          }
+
+          if (Object.keys(algorithms).length > 0) {
+            baseConfig.algorithms = algorithms;
+          }
+        } else if (useCustomAlgorithms && !algConfig?.enabled) {
+          // 默认提供一套通用、安全且被 ssh2 支持的清单
+          baseConfig.algorithms = {
+            kex: [
+              'curve25519-sha256',
+              'curve25519-sha256@libssh.org',
+              'ecdh-sha2-nistp256',
+              'ecdh-sha2-nistp384',
+              'ecdh-sha2-nistp521',
+              'diffie-hellman-group-exchange-sha256',
+              'diffie-hellman-group14-sha1',
+            ],
+            cipher: [
+              'aes128-gcm@openssh.com',
+              'aes256-gcm@openssh.com',
+              'aes128-ctr',
+              'aes256-ctr',
+            ],
+            hmac: ['hmac-sha2-256', 'hmac-sha2-512'],
+          };
+        }
+
+        logger.debug('正在连接 SSH 服务器', {
+          host,
+          port,
+          username,
+          customAlgorithms: !!baseConfig.algorithms,
         });
-        reject(new Error(`SSH 连接失败: ${error.message}`));
-      });
-
-      client.on('close', () => {
-        logger.debug('SSH 连接已关闭', { host, port, username });
-      });
-
-      // 连接配置
-      const connectionConfig = {
-        host,
-        port,
-        username,
-        password,
-        readyTimeout: config.ssh.readyTimeout,
-        keepaliveInterval: config.ssh.keepaliveInterval,
-        keepaliveCountMax: 3,
-        algorithms: {
-          // 禁用不安全的算法
-          kex: [
-            'diffie-hellman-group14-sha256',
-            'diffie-hellman-group16-sha256',
-            'diffie-hellman-group18-sha256',
-          ],
-          cipher: [
-            'aes128-gcm@openssh.com',
-            'aes256-gcm@openssh.com',
-            'aes128-ctr',
-            'aes256-ctr',
-          ],
-          hmac: ['hmac-sha2-256', 'hmac-sha2-512'],
-        },
+        client.connect(baseConfig);
       };
 
-      logger.debug('正在连接 SSH 服务器', { host, port, username });
-      client.connect(connectionConfig);
+      // 首次尝试使用自定义安全算法；失败则回退
+      attemptConnect(true);
     });
   }
 
