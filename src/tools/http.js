@@ -144,10 +144,6 @@ export class HttpTool {
    * 验证请求参数
    */
   validateArgs(args) {
-    if (!args.method) {
-      throw ErrorHandler.createMissingParameterError('method');
-    }
-
     if (!args.url) {
       throw ErrorHandler.createMissingParameterError('url');
     }
@@ -165,7 +161,7 @@ export class HttpTool {
       'HEAD',
       'OPTIONS',
     ];
-    if (!allowedMethods.includes(args.method.toUpperCase())) {
+    if (args.method && !allowedMethods.includes(args.method.toUpperCase())) {
       throw ErrorHandler.createValidationError(
         'method',
         `不支持的 HTTP 方法，可用方法: ${allowedMethods.join(', ')}`,
@@ -197,15 +193,15 @@ export class HttpTool {
    * 构建请求配置
    */
   buildRequestConfig(args) {
-    const config = {
-      method: args.method.toUpperCase(),
+    const reqConfig = {
+      method: args.method ? args.method.toUpperCase() : 'GET',
       url: args.url,
       timeout: args.timeout || config.http.timeout,
     };
 
     // 设置请求头
     if (args.headers) {
-      config.headers = { ...args.headers };
+      reqConfig.headers = { ...args.headers };
     }
 
     // 设置请求体
@@ -213,23 +209,23 @@ export class HttpTool {
       // 尝试解析 JSON
       try {
         const parsedBody = JSON.parse(args.body);
-        config.data = parsedBody;
+        reqConfig.data = parsedBody;
         // 如果没有设置 Content-Type，自动设置为 JSON
-        if (!config.headers?.['Content-Type']) {
-          config.headers = config.headers || {};
-          config.headers['Content-Type'] = 'application/json';
+        if (!reqConfig.headers?.['Content-Type']) {
+          reqConfig.headers = reqConfig.headers || {};
+          reqConfig.headers['Content-Type'] = 'application/json';
         }
       } catch (error) {
         // 如果不是有效的 JSON，当作字符串处理
-        config.data = args.body;
-        if (!config.headers?.['Content-Type']) {
-          config.headers = config.headers || {};
-          config.headers['Content-Type'] = 'text/plain';
+        reqConfig.data = args.body;
+        if (!reqConfig.headers?.['Content-Type']) {
+          reqConfig.headers = reqConfig.headers || {};
+          reqConfig.headers['Content-Type'] = 'text/plain';
         }
       }
     }
 
-    return config;
+    return reqConfig;
   }
 
   /**
