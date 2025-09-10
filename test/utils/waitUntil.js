@@ -3,7 +3,7 @@ export async function waitUntil(predicate, timeoutMs = 2000, intervalMs = 50) {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
-      if (predicate()) return;
+      if (await predicate()) return;
     } catch (e) {
       // 如果 predicate 抛错，继续重试直到超时
     }

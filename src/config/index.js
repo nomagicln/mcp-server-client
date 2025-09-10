@@ -71,7 +71,7 @@ export const config = {
       })(),
       serverHostKey: (() => {
         const v = process.env.MCP_SSH_HOSTKEY_ALGORITHMS;
-        return v ? parseCsv(v) : undefined;
+        return v ? splitEnvList(v) : undefined;
       })(),
     },
   },
