@@ -9,6 +9,13 @@
 import { spawn } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+// 内部模块（ESM 静态导入）
+import { resolveConfig } from '../src/config/loader.js';
+import {
+  LocalFileLoader,
+  RemoteApiLoader,
+} from '../src/resources/loaders/index.js';
+import ResourceRegistry from '../src/resources/registry/ResourceRegistry.js';
 
 // 获取当前文件所在目录
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +44,10 @@ const commands = {
   'list-transports': {
     description: '列出支持的传输方式',
     action: () => listTransports(),
+  },
+  'list-resources': {
+    description: '列出已注册的资源（按配置加载），支持筛选与分页',
+    action: () => listResourcesCommand(),
   },
 };
 
@@ -187,6 +198,133 @@ function listTransports() {
   MCP_CONFIG=./mcp.config.js                 # 指定配置文件路径（JSON/JS）
   MCP_WATCH_CONFIG=1                         # 启用配置热更新
 `);
+}
+
+/**
+ * list-resources 命令实现
+ * 支持选项：
+ *   --config <path>
+ *   --type <host|api>
+ *   --loader <local|remote>
+ *   --cap <capability>   可重复或逗号分隔
+ *   --label <k=v>        可重复
+ *   --limit <n>
+ *   --offset <n>
+ */
+function listResourcesCommand() {
+  const lrArgs = args.slice(1); // 排除 'list-resources'
+  let configPath = null;
+  const filter = { labels: {}, capabilities: [] };
+  const pagination = {};
+
+  for (let i = 0; i < lrArgs.length; i += 1) {
+    const a = lrArgs[i];
+    if (a === '--config' && lrArgs[i + 1]) {
+      configPath = lrArgs[++i];
+      continue;
+    }
+    if (a === '--type' && lrArgs[i + 1]) {
+      filter.type = lrArgs[++i];
+      continue;
+    }
+    if (a === '--loader' && lrArgs[i + 1]) {
+      filter.loaderType = lrArgs[++i];
+      continue;
+    }
+    if (a === '--cap' && lrArgs[i + 1]) {
+      const val = lrArgs[++i];
+      filter.capabilities.push(
+        ...String(val)
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean),
+      );
+      continue;
+    }
+    if (a === '--label' && lrArgs[i + 1]) {
+      const kv = String(lrArgs[++i]);
+      const eq = kv.indexOf('=');
+      if (eq > 0) {
+        const k = kv.slice(0, eq);
+        const v = kv.slice(eq + 1);
+        filter.labels[k] = v;
+      }
+      continue;
+    }
+    if (a === '--limit' && lrArgs[i + 1]) {
+      pagination.limit = parseInt(lrArgs[++i], 10);
+      continue;
+    }
+    if (a === '--offset' && lrArgs[i + 1]) {
+      pagination.offset = parseInt(lrArgs[++i], 10);
+      continue;
+    }
+  }
+
+  (async () => {
+    try {
+      const { config: fileConfig } = await resolveConfig({
+        cliPath: configPath || undefined,
+        envPath: process.env.MCP_CONFIG,
+        allowFallback: true,
+      });
+
+      const registry = new ResourceRegistry();
+      const resConf = fileConfig?.resources;
+      if (resConf && Array.isArray(resConf.loaders)) {
+        for (const loaderCfg of resConf.loaders) {
+          const { type, id } = loaderCfg || {};
+          if (!type || !id) continue;
+          let loader = null;
+          if (type === 'local') {
+            loader = new LocalFileLoader({ files: loaderCfg.files || [] });
+          } else if (type === 'remote') {
+            loader = new RemoteApiLoader({
+              baseUrl: loaderCfg.baseUrl,
+              headers: loaderCfg.headers,
+              auth: loaderCfg.auth,
+              timeoutMs: loaderCfg.timeoutMs,
+            });
+          }
+          if (!loader || typeof loader.loadResources !== 'function') continue;
+          try {
+            const { resources } = await loader.loadResources();
+            for (const r of resources || []) {
+              const rid = typeof r?.id === 'string' ? r.id : null;
+              const rtype = typeof r?.type === 'string' ? r.type : null;
+              if (!rid || !rtype) continue;
+              const identifier = `${rtype}://${type}/${id}/${rid}`;
+              registry.registerResource(identifier, r);
+            }
+          } catch (e) {
+            // 忽略某个 loader 的失败，继续其他
+          }
+        }
+      }
+
+      const { resources, total, filtered } = registry.listResources({
+        filter,
+        pagination,
+      });
+      const simplified = resources.map(({ identifier, resource }) => ({
+        identifier,
+        id: resource?.id,
+        type: resource?.type,
+        name: resource?.name,
+        capabilities: resource?.capabilities,
+        labels: resource?.labels,
+      }));
+      // 输出 JSON
+      process.stdout.write(
+        JSON.stringify({ total, filtered, resources: simplified }, null, 2) +
+          '\n',
+      );
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ 列出资源失败:', error.message);
+      process.exit(1);
+    }
+  })();
 }
 
 /**

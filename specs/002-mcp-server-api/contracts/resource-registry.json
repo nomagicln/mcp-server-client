@@ -1,0 +1,234 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcp-server-client/schemas/resource-registry.json",
+  "title": "ResourceRegistry API Contract",
+  "description": "API contract for resource registry operations",
+  "type": "object",
+  "properties": {
+    "resolveResource": {
+      "type": "object",
+      "description": "Resolve a resource by its identifier",
+      "properties": {
+        "input": {
+          "type": "object",
+          "required": ["identifier"],
+          "properties": {
+            "identifier": {
+              "type": "string",
+              "pattern": "^(host|api)://(local|remote)/[^/]+/[^/]+$",
+              "description": "Resource identifier in format: {type}://{loaderType}/{loaderId}/{resourceId}"
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["found"],
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "resource": {
+              "$ref": "resource.json#/definitions/Resource"
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": ["NOT_FOUND", "INVALID_IDENTIFIER", "LOADER_ERROR"]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "listResources": {
+      "type": "object",
+      "description": "List all registered resources with optional filtering",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "filter": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["host", "api"]
+                },
+                "loaderType": {
+                  "type": "string",
+                  "enum": ["local", "remote"]
+                },
+                "capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Filter by required capabilities"
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "pagination": {
+              "type": "object",
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000,
+                  "default": 100
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0
+                }
+              }
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["resources", "total"],
+          "properties": {
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["identifier", "resource"],
+                "properties": {
+                  "identifier": {
+                    "type": "string"
+                  },
+                  "resource": {
+                    "$ref": "resource.json#/definitions/Resource"
+                  }
+                }
+              }
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "filtered": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "registerResource": {
+      "type": "object",
+      "description": "Register a new resource in the registry",
+      "properties": {
+        "input": {
+          "type": "object",
+          "required": ["identifier", "resource"],
+          "properties": {
+            "identifier": {
+              "type": "string",
+              "pattern": "^(host|api)://(local|remote)/[^/]+/[^/]+$"
+            },
+            "resource": {
+              "$ref": "resource.json#/definitions/Resource"
+            },
+            "overwrite": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to overwrite existing resource"
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["success"],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "DUPLICATE_ID",
+                    "VALIDATION_ERROR",
+                    "PERMISSION_DENIED"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            },
+            "conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "existing": {
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unregisterResource": {
+      "type": "object",
+      "description": "Remove a resource from the registry",
+      "properties": {
+        "input": {
+          "type": "object",
+          "required": ["identifier"],
+          "properties": {
+            "identifier": {
+              "type": "string"
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["success"],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": ["NOT_FOUND", "PERMISSION_DENIED"]
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

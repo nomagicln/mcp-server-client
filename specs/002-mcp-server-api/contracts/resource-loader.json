@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcp-server-client/schemas/resource-loader.json",
+  "title": "ResourceLoader API Contract",
+  "description": "API contract for resource loader implementations",
+  "type": "object",
+  "properties": {
+    "loadResources": {
+      "type": "object",
+      "description": "Load resources from the configured source",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "force": {
+              "type": "boolean",
+              "default": false,
+              "description": "Force reload even if cached"
+            },
+            "filter": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["host", "api"]
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["success", "resources"],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "$ref": "resource.json#/definitions/Resource"
+              }
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["code", "message"],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_FORMAT",
+                      "ACCESS_DENIED",
+                      "NETWORK_ERROR",
+                      "VALIDATION_ERROR"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "loadTime": {
+                  "type": "number",
+                  "description": "Load time in milliseconds"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source identifier"
+                },
+                "cached": {
+                  "type": "boolean",
+                  "description": "Whether result was served from cache"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "validateResource": {
+      "type": "object",
+      "description": "Validate a resource definition",
+      "properties": {
+        "input": {
+          "type": "object",
+          "required": ["resource"],
+          "properties": {
+            "resource": {
+              "$ref": "resource.json#/definitions/Resource"
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["valid"],
+          "properties": {
+            "valid": {
+              "type": "boolean"
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "message"],
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["error", "warning"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reloadResources": {
+      "type": "object",
+      "description": "Reload resources from source",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "incremental": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to perform incremental reload"
+            }
+          }
+        },
+        "output": {
+          "$ref": "#/properties/loadResources/properties/output"
+        }
+      }
+    }
+  }
+}

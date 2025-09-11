@@ -1,0 +1,309 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcp-server-client/schemas/tool-adapters.json",
+  "title": "Tool Adapters API Contract",
+  "description": "API contract for resource-aware tool adaptations",
+  "type": "object",
+  "properties": {
+    "ssh_exec": {
+      "type": "object",
+      "description": "Execute SSH command via resource identifier or direct connection",
+      "properties": {
+        "resourceMode": {
+          "type": "object",
+          "description": "Resource-based execution mode",
+          "properties": {
+            "input": {
+              "type": "object",
+              "required": ["resourceIdentifier", "command"],
+              "properties": {
+                "resourceIdentifier": {
+                  "type": "string",
+                  "pattern": "^host://.+$",
+                  "description": "Host resource identifier"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Command to execute"
+                },
+                "options": {
+                  "type": "object",
+                  "properties": {
+                    "timeout": {
+                      "type": "number",
+                      "minimum": 1000,
+                      "maximum": 300000,
+                      "description": "Command timeout in milliseconds"
+                    },
+                    "workingDirectory": {
+                      "type": "string",
+                      "description": "Working directory for command execution"
+                    },
+                    "environment": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Environment variables"
+                    }
+                  }
+                }
+              }
+            },
+            "output": {
+              "type": "object",
+              "required": ["success", "exitCode"],
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "exitCode": {
+                  "type": "integer"
+                },
+                "stdout": {
+                  "type": "string"
+                },
+                "stderr": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "RESOURCE_NOT_FOUND",
+                        "CAPABILITY_DENIED",
+                        "CONNECTION_FAILED",
+                        "AUTHENTICATION_FAILED",
+                        "COMMAND_TIMEOUT",
+                        "EXECUTION_ERROR"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "properties": {
+                    "executionTime": {
+                      "type": "number"
+                    },
+                    "resourceId": {
+                      "type": "string"
+                    },
+                    "connectionReused": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "directMode": {
+          "type": "object",
+          "description": "Direct connection mode (backward compatibility)",
+          "properties": {
+            "input": {
+              "type": "object",
+              "required": ["host", "username", "command"],
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "description": "Host address with optional port"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "password": {
+                  "type": "string"
+                },
+                "privateKey": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "timeout": {
+                  "type": "number"
+                }
+              }
+            },
+            "output": {
+              "$ref": "#/properties/ssh_exec/properties/resourceMode/properties/output"
+            }
+          }
+        }
+      }
+    },
+    "http_request": {
+      "type": "object",
+      "description": "Make HTTP request via resource identifier or direct URL",
+      "properties": {
+        "resourceMode": {
+          "type": "object",
+          "description": "Resource-based request mode",
+          "properties": {
+            "input": {
+              "type": "object",
+              "required": ["resourceIdentifier"],
+              "properties": {
+                "resourceIdentifier": {
+                  "type": "string",
+                  "pattern": "^api://.+$",
+                  "description": "API resource identifier"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "PATCH",
+                    "HEAD",
+                    "OPTIONS"
+                  ],
+                  "default": "GET"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Request path (appended to baseUrl)"
+                },
+                "query": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Query parameters"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Additional request headers"
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Request body (JSON string or plain text)"
+                },
+                "timeout": {
+                  "type": "number",
+                  "minimum": 1000,
+                  "maximum": 300000
+                }
+              }
+            },
+            "output": {
+              "type": "object",
+              "required": ["success", "status"],
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "body": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "RESOURCE_NOT_FOUND",
+                        "CAPABILITY_DENIED",
+                        "METHOD_NOT_ALLOWED",
+                        "HEADER_NOT_ALLOWED",
+                        "REQUEST_TOO_LARGE",
+                        "RESPONSE_TOO_LARGE",
+                        "NETWORK_ERROR",
+                        "AUTHENTICATION_FAILED",
+                        "REQUEST_TIMEOUT"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "properties": {
+                    "requestTime": {
+                      "type": "number"
+                    },
+                    "resourceId": {
+                      "type": "string"
+                    },
+                    "finalUrl": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "directMode": {
+          "type": "object",
+          "description": "Direct URL mode (backward compatibility)",
+          "properties": {
+            "input": {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "PATCH",
+                    "HEAD",
+                    "OPTIONS"
+                  ]
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "body": {
+                  "type": "string"
+                },
+                "timeout": {
+                  "type": "number"
+                }
+              }
+            },
+            "output": {
+              "$ref": "#/properties/http_request/properties/resourceMode/properties/output"
+            }
+          }
+        }
+      }
+    }
+  }
+}

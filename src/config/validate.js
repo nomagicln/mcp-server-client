@@ -28,6 +28,50 @@ export function validateConfig(obj) {
   if (obj.transport && typeof obj.transport !== 'object') {
     errors.push('transport must be object');
   }
+  // resources
+  if (obj.resources !== undefined) {
+    if (typeof obj.resources !== 'object') {
+      errors.push('resources must be object');
+    } else {
+      const { loaders } = obj.resources;
+      if (loaders !== undefined) {
+        if (!Array.isArray(loaders)) {
+          errors.push('resources.loaders must be array');
+        } else {
+          for (const [idx, loader] of loaders.entries()) {
+            if (!loader || typeof loader !== 'object') {
+              errors.push(`resources.loaders[${idx}] must be object`);
+              continue;
+            }
+            if (!['local', 'remote'].includes(loader.type)) {
+              errors.push(
+                `resources.loaders[${idx}].type must be 'local' or 'remote'`,
+              );
+            }
+            if (typeof loader.id !== 'string' || !loader.id) {
+              errors.push(
+                `resources.loaders[${idx}].id must be non-empty string`,
+              );
+            }
+            if (loader.type === 'local') {
+              if (!Array.isArray(loader.files) || loader.files.length === 0) {
+                errors.push(
+                  `resources.loaders[${idx}].files must be non-empty array for local loader`,
+                );
+              }
+            }
+            if (loader.type === 'remote') {
+              if (typeof loader.baseUrl !== 'string' || !loader.baseUrl) {
+                errors.push(
+                  `resources.loaders[${idx}].baseUrl must be non-empty string for remote loader`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
   // logging
   if (obj.logging && typeof obj.logging !== 'object') {
     errors.push('logging must be object');

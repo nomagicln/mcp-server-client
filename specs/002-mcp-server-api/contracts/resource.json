@@ -1,0 +1,265 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcp-server-client/schemas/resource.json",
+  "title": "Resource Definitions",
+  "description": "Schema definitions for MCP Server resources",
+  "definitions": {
+    "Resource": {
+      "type": "object",
+      "required": ["id", "type", "name", "capabilities", "auth"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9._-]+$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Unique resource identifier within loader scope"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["host", "api"],
+          "description": "Resource type"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Display name for the resource"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional resource description"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "description": "Key-value labels for categorization and filtering"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]+\\.[a-z.-]+$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "List of capabilities this resource declares"
+        },
+        "auth": {
+          "$ref": "#/definitions/AuthenticationProfile"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Extended metadata for the resource"
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/definitions/HostResource"
+        },
+        {
+          "$ref": "#/definitions/ApiResource"
+        }
+      ]
+    },
+    "HostResource": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "host"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^ssh\\."
+              },
+              "contains": {
+                "const": "ssh.exec"
+              }
+            }
+          }
+        }
+      ],
+      "required": ["connection"],
+      "properties": {
+        "connection": {
+          "type": "object",
+          "required": ["hostname", "username"],
+          "properties": {
+            "hostname": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Hostname or IP address"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "default": 22,
+              "description": "SSH port number"
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "description": "SSH username"
+            }
+          }
+        },
+        "sshConfig": {
+          "type": "object",
+          "properties": {
+            "algorithms": {
+              "type": "object",
+              "description": "SSH algorithm preferences (uses system defaults if omitted)"
+            },
+            "keepaliveInterval": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Keepalive interval in milliseconds"
+            },
+            "readyTimeout": {
+              "type": "number",
+              "minimum": 1000,
+              "description": "Connection ready timeout in milliseconds"
+            }
+          }
+        }
+      }
+    },
+    "ApiResource": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "api"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^http\\."
+              },
+              "contains": {
+                "const": "http.request"
+              }
+            }
+          }
+        }
+      ],
+      "required": ["endpoints"],
+      "properties": {
+        "endpoints": {
+          "type": "object",
+          "required": ["baseUrl"],
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "format": "uri",
+              "description": "Base URL for API endpoints"
+            },
+            "defaultHeaders": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Default headers to include in requests"
+            },
+            "defaultQuery": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Default query parameters"
+            }
+          }
+        },
+        "httpConfig": {
+          "type": "object",
+          "properties": {
+            "timeout": {
+              "type": "number",
+              "minimum": 1000,
+              "description": "Request timeout in milliseconds"
+            },
+            "maxRetries": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10,
+              "description": "Maximum retry attempts"
+            }
+          }
+        }
+      }
+    },
+    "AuthenticationProfile": {
+      "type": "object",
+      "required": ["methods", "credentialRef"],
+      "properties": {
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ssh-key",
+              "password",
+              "agent",
+              "none",
+              "token",
+              "basic",
+              "mtls"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Supported authentication methods"
+        },
+        "credentialRef": {
+          "type": "string",
+          "pattern": "^(env|file|vault)://",
+          "description": "Reference to credential storage"
+        },
+        "algorithms": {
+          "type": "object",
+          "description": "Authentication algorithm configuration (uses system defaults if omitted)"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Permission scopes (applicable for token-based auth)"
+        }
+      }
+    },
+    "ResourceIdentifier": {
+      "type": "object",
+      "required": ["resourceType", "loaderType", "loaderId", "resourceId"],
+      "properties": {
+        "resourceType": {
+          "type": "string",
+          "enum": ["host", "api"]
+        },
+        "loaderType": {
+          "type": "string",
+          "enum": ["local", "remote"]
+        },
+        "loaderId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9._-]+$"
+        },
+        "resourceId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9._-]+$"
+        }
+      }
+    }
+  }
+}

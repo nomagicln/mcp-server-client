@@ -12,6 +12,10 @@ import * as mcpTypes from '@modelcontextprotocol/sdk/types.js';
 // 导入工具
 import { HttpTool } from './tools/http.js';
 import { SshTool } from './tools/ssh.js';
+// 资源：注册表、加载器与适配器
+import { HttpToolAdapter, SshToolAdapter } from './resources/adapters/index.js';
+import { LocalFileLoader, RemoteApiLoader } from './resources/loaders/index.js';
+import ResourceRegistry from './resources/registry/ResourceRegistry.js';
 
 // 导入配置和传输
 import { applyLoadedConfig, config } from './config/index.js';
@@ -29,10 +33,12 @@ class McpServerClient {
   constructor(transportType = null) {
     this.server = null;
     this.tools = {};
+    this.adapters = {};
     this.transport = null;
     this.transportType = transportType || config.transport.default;
     this.loadedConfigMeta = null;
     this.configWatcher = null;
+    this.registry = new ResourceRegistry();
     this.setupTools();
   }
 
@@ -42,6 +48,9 @@ class McpServerClient {
   setupTools() {
     this.tools.http = new HttpTool();
     this.tools.ssh = new SshTool();
+    // 基于资源的适配层
+    this.adapters.http = new HttpToolAdapter(this.registry);
+    this.adapters.ssh = new SshToolAdapter(this.registry);
   }
 
   /**
@@ -90,6 +99,12 @@ class McpServerClient {
           onApply: (fileConfig, meta) => {
             applyLoadedConfig(fileConfig);
             this.loadedConfigMeta = meta;
+            // 配置变更时重建资源
+            this.reloadResources().catch(err => {
+              logger.warn('资源重载失败，保持上次资源集', {
+                reason: err.message,
+              });
+            });
             logger.info('配置热更新完成', {
               source: meta.source,
               path: meta.path,
@@ -114,6 +129,9 @@ class McpServerClient {
       // 注册工具
       await this.registerTools();
 
+      // 尝试加载资源（如果配置提供）
+      await this.reloadResources();
+
       // 设置请求处理器
       this.setupHandlers();
 
@@ -121,7 +139,9 @@ class McpServerClient {
       await this.createTransport();
 
       logger.info('MCP Server Client 已启动并准备就绪');
-      logger.info('支持的工具: http_request, ssh_exec');
+      logger.info(
+        '支持的工具: http_request, http_request_resource, ssh_exec, ssh_exec_resource',
+      );
       logger.info(`传输方式: ${this.transportType}`);
 
       // 根据传输类型显示不同的连接信息
@@ -148,7 +168,7 @@ class McpServerClient {
             tools: [
               {
                 name: 'http_request',
-                description: '发送 HTTP 请求到指定的 URL',
+                description: '发送 HTTP 请求（直连 URL 模式）',
                 inputSchema: {
                   type: 'object',
                   properties: {
@@ -163,55 +183,68 @@ class McpServerClient {
                         'HEAD',
                         'OPTIONS',
                       ],
-                      description: 'HTTP 请求方法（可选，默认 GET）',
                       default: 'GET',
                     },
-                    url: {
-                      type: 'string',
-                      description: '请求 URL',
-                    },
+                    url: { type: 'string', description: '请求 URL' },
                     headers: {
                       type: 'object',
-                      description: '请求头对象',
-                      additionalProperties: {
-                        type: 'string',
-                      },
+                      additionalProperties: { type: 'string' },
                     },
-                    body: {
-                      type: 'string',
-                      description: '请求体内容 (JSON 字符串或纯文本)',
-                    },
-                    timeout: {
-                      type: 'number',
-                      description: '请求超时时间 (毫秒)',
-                      default: 30000,
-                    },
+                    body: { type: 'string' },
+                    timeout: { type: 'number', default: 30000 },
                   },
                   required: ['url'],
                 },
               },
               {
+                name: 'http_request_resource',
+                description: '发送 HTTP 请求（资源模式）',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    method: {
+                      type: 'string',
+                      enum: [
+                        'GET',
+                        'POST',
+                        'PUT',
+                        'DELETE',
+                        'PATCH',
+                        'HEAD',
+                        'OPTIONS',
+                      ],
+                      default: 'GET',
+                    },
+                    resource: {
+                      type: 'string',
+                      description:
+                        '资源标识符，如 api://remote/<loaderId>/<resourceId>',
+                    },
+                    path: { type: 'string', description: '相对路径，如 /v1' },
+                    headers: {
+                      type: 'object',
+                      additionalProperties: { type: 'string' },
+                    },
+                    body: { type: 'string' },
+                    timeout: { type: 'number', default: 30000 },
+                  },
+                  required: ['resource'],
+                },
+              },
+              {
                 name: 'ssh_exec',
-                description: '通过 SSH 执行远程服务器命令',
+                description: '通过 SSH 执行远程服务器命令（直连模式）',
                 inputSchema: {
                   type: 'object',
                   properties: {
                     host: {
                       type: 'string',
-                      description: '目标服务器地址 (格式: host:port)',
+                      description:
+                        '目标服务器地址 (格式: host:port 或 host，可选端口 22)',
                     },
-                    username: {
-                      type: 'string',
-                      description: 'SSH 用户名',
-                    },
-                    password: {
-                      type: 'string',
-                      description: 'SSH 密码',
-                    },
-                    command: {
-                      type: 'string',
-                      description: '要执行的命令',
-                    },
+                    username: { type: 'string', description: 'SSH 用户名' },
+                    password: { type: 'string', description: 'SSH 密码' },
+                    command: { type: 'string', description: '要执行的命令' },
                     timeout: {
                       type: 'number',
                       description: '命令执行超时时间 (毫秒)',
@@ -219,6 +252,60 @@ class McpServerClient {
                     },
                   },
                   required: ['host', 'username', 'password', 'command'],
+                },
+              },
+              {
+                name: 'ssh_exec_resource',
+                description: '通过主机资源执行 SSH 命令（资源模式）',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    resource: {
+                      type: 'string',
+                      description:
+                        '主机资源标识符，如 host://local/<loaderId>/<resourceId>',
+                    },
+                    command: { type: 'string' },
+                    timeout: { type: 'number', default: 30000 },
+                  },
+                  required: ['resource', 'command'],
+                },
+              },
+              {
+                name: 'list_resources',
+                description: '列出已注册的资源，支持筛选与分页',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    filter: {
+                      type: 'object',
+                      properties: {
+                        type: {
+                          type: 'string',
+                          description: '资源类型: host|api',
+                        },
+                        loaderType: {
+                          type: 'string',
+                          description: '加载器类型: local|remote',
+                        },
+                        capabilities: {
+                          type: 'array',
+                          items: { type: 'string' },
+                        },
+                        labels: {
+                          type: 'object',
+                          additionalProperties: { type: 'string' },
+                        },
+                      },
+                    },
+                    pagination: {
+                      type: 'object',
+                      properties: {
+                        limit: { type: 'number', minimum: 1, maximum: 1000 },
+                        offset: { type: 'number', minimum: 0 },
+                      },
+                    },
+                  },
                 },
               },
             ],
@@ -275,14 +362,55 @@ class McpServerClient {
       let result;
 
       switch (name) {
-        case 'http_request':
+        case 'http_request': {
+          // 直连 URL 模式；资源模式请使用 http_request_resource
           result = await this.tools.http.execute(args);
           break;
-
-        case 'ssh_exec':
-          result = await this.tools.ssh.execute(args);
+        }
+        case 'http_request_resource': {
+          const fn = this.adapters.http.adaptHttpTool();
+          result = await fn(args);
           break;
-
+        }
+        case 'ssh_exec': {
+          const normalized = this.normalizeSshArgs(args);
+          result = await this.tools.ssh.execute(normalized);
+          break;
+        }
+        case 'ssh_exec_resource': {
+          const fn = this.adapters.ssh.adaptSshTool();
+          const normalized = this.normalizeSshArgs(args);
+          result = await fn(normalized);
+          break;
+        }
+        case 'list_resources': {
+          const { filter, pagination } = args || {};
+          const { resources, total, filtered } = this.registry.listResources({
+            filter: filter || {},
+            pagination: pagination || {},
+          });
+          // 仅返回必要字段，避免打印敏感信息
+          const simplified = resources.map(r => ({
+            identifier: r.identifier,
+            id: r.resource?.id,
+            type: r.resource?.type,
+            name: r.resource?.name,
+            capabilities: r.resource?.capabilities,
+            labels: r.resource?.labels,
+          }));
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  { total, filtered, resources: simplified },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
         default:
           throw new Error(`未知工具: ${name}`);
       }
@@ -302,6 +430,19 @@ class McpServerClient {
         isError: true,
       };
     }
+  }
+
+  /**
+   * 归一化 SSH 参数，支持 commands -> command 的别名
+   */
+  normalizeSshArgs(args) {
+    if (!args || typeof args !== 'object') {
+      return args;
+    }
+    if (!args.command && typeof args.commands === 'string') {
+      return { ...args, command: args.commands };
+    }
+    return args;
   }
 
   /**
@@ -410,6 +551,78 @@ class McpServerClient {
       logger.error('停止服务器时发生错误:', error);
     }
   }
+
+  /**
+   * 基于配置加载与注册资源
+   */
+  async reloadResources() {
+    try {
+      // 若无资源配置则跳过
+      const resConf = config.resources;
+      // 重置注册表
+      this.registry = new ResourceRegistry();
+      // 重新绑定适配器的注册表
+      if (this.adapters.http) {
+        this.adapters.http.registry = this.registry;
+      }
+      if (this.adapters.ssh) {
+        this.adapters.ssh.registry = this.registry;
+      }
+
+      if (!resConf || !Array.isArray(resConf.loaders)) {
+        return;
+      }
+
+      for (const loaderCfg of resConf.loaders) {
+        const { type, id } = loaderCfg || {};
+        if (!type || !id) {
+          continue;
+        }
+        let loader = null;
+        if (type === 'local') {
+          loader = new LocalFileLoader({ files: loaderCfg.files || [] });
+        } else if (type === 'remote') {
+          loader = new RemoteApiLoader({
+            baseUrl: loaderCfg.baseUrl,
+            headers: loaderCfg.headers,
+            auth: loaderCfg.auth,
+            timeoutMs: loaderCfg.timeoutMs,
+          });
+        }
+        if (!loader || typeof loader.loadResources !== 'function') {
+          continue;
+        }
+
+        try {
+          const { success, resources, errors } = await loader.loadResources();
+          if (!success) {
+            logger.warn('资源加载器部分失败', { loaderId: id, errors });
+          }
+          for (const r of resources || []) {
+            const rid = safeString(r?.id);
+            const rtype = safeString(r?.type);
+            if (!rid || !rtype) {
+              continue;
+            }
+            const identifier = `${rtype}://${type}/${id}/${rid}`;
+            const reg = this.registry.registerResource(identifier, r);
+            if (!reg.success) {
+              logger.warn('注册资源失败', { identifier, error: reg.error });
+            }
+          }
+        } catch (e) {
+          logger.warn('资源加载失败', { loaderId: id, reason: e.message });
+        }
+      }
+    } catch (e) {
+      // 不影响服务器主流程
+      logger.warn('资源系统初始化异常（已忽略）', { reason: e.message });
+    }
+  }
+}
+
+function safeString(v) {
+  return typeof v === 'string' && v ? v : '';
 }
 
 // 解析命令行参数获取传输类型

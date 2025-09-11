@@ -4,7 +4,7 @@ Auto-generated from all feature plans. Last updated: 2025-09-11
 
 ## Active Technologies
 
--  +  (001-title-summary-goals)
+- - (001-title-summary-goals)
 
 ## Project Structure
 
@@ -15,7 +15,7 @@ tests/
 
 ## Commands
 
-# Add commands for 
+# Add commands for
 
 ## Code Style
 
@@ -23,7 +23,7 @@ tests/
 
 ## Recent Changes
 
-- 001-title-summary-goals: Added  + 
+- 002-mcp-server-api: Added +
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

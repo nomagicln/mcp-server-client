@@ -43,6 +43,13 @@
 - **详细日志记录**：结构化日志便于调试和监控
 - **优雅降级**：错误恢复和连接重试机制
 
+### 🧩 资源系统（Host/API）
+
+- 定义“主机资源”(host) 与 “API 端点资源”(api)
+- 通过统一“资源标识符”引用：`{type}://{loaderType}/{loaderId}/{resourceId}`
+- 支持本地文件与远程目录加载（含 ETag 缓存与重试）
+- 热更新：配置变更时自动重建资源注册表
+
 ## 快速开始
 
 ### 使用 Makefile（推荐）
@@ -234,6 +241,172 @@ export const config = {
   }
 };
 ```
+
+## 资源配置与用法（Host/API）
+
+### 资源标识符格式
+
+- 统一格式：`{type}://{loaderType}/{loaderId}/{resourceId}`
+  - `type`：资源类型，`host` 或 `api`
+  - `loaderType`：加载器类型，`local` 或 `remote`
+  - `loaderId`：加载器在配置中的唯一 ID
+  - `resourceId`：资源自身的 ID（由资源目录提供）
+
+示例：
+
+- `host://local/dev-hosts/web-1`
+- `api://remote/prod-apis/github`
+
+### 在配置中声明资源加载器
+
+在 `mcp.config.json|js` 中新增 `resources.loaders`：
+
+```jsonc
+{
+  "resources": {
+    "loaders": [
+      {
+        "type": "local",
+        "id": "dev-hosts",
+        "files": ["./resources/hosts.yaml", "./resources/apis.json"]
+      },
+      {
+        "type": "remote",
+        "id": "prod-apis",
+        "baseUrl": "https://example.com/resources/index.json",
+        "headers": { "X-Source": "mcpsc" },
+        "auth": { "bearerCredentialRef": "env://API_TOKEN" },
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}
+```
+
+本地文件格式支持 JSON/YAML，示例：
+
+```yaml
+- type: host
+  id: web-1
+  name: Web Server 1
+  capabilities: ["ssh.exec"]
+  connection:
+    host: web1.internal:22
+    username: deploy
+    credentialRef: env://WEB1_PASSWORD
+  labels:
+    env: dev
+
+- type: api
+  id: github
+  name: GitHub REST
+  capabilities: ["http.request"]
+  endpoints:
+    baseUrl: https://api.github.com
+    defaultHeaders:
+      Accept: application/vnd.github+json
+  auth:
+    credentialRef: env://GITHUB_TOKEN
+  labels:
+    env: prod
+```
+
+远程目录（`remote` loader）应返回 JSON/YAML，内容与本地相同（数组或对象集合）。该 loader 内置：
+
+- 可选 Bearer 认证：`auth.bearerCredentialRef`
+- 简单重试：`retryAttempts`（默认 2 次）、`retryDelayMs`
+- ETag 缓存：下次请求带 `If-None-Match`，304 时复用缓存
+
+### 凭证引用（Credential Ref）
+
+- `env://NAME`：从环境变量读取内容
+- `file:///absolute/path`：从文件读取敏感内容
+
+支持位置：
+
+- host.connection.credentialRef（SSH 密码）
+- api.auth.credentialRef（HTTP Authorization: Bearer ...）
+- remote loader 的 `auth.bearerCredentialRef`
+
+### 通过资源使用工具
+
+1. HTTP（资源模式）：
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "http_request",
+    "arguments": {
+      "method": "GET",
+      "resource": "api://remote/prod-apis/github",
+      "path": "/repos/owner/repo",
+      "headers": { "X-Trace": "1" },
+      "timeout": 15000
+    }
+  }
+}
+```
+
+2. SSH（资源模式）：
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "ssh_exec",
+    "arguments": {
+      "resource": "host://local/dev-hosts/web-1",
+      "command": "uname -a",
+      "timeout": 20000
+    }
+  }
+}
+```
+
+同一个工具也支持“直连模式”（保持向后兼容）：
+
+- `http_request` 直接传 `url`
+- `ssh_exec` 直接传 `host/username/password`
+
+### 列出资源（Server 工具）
+
+可以通过 MCP 工具 `list_resources` 获取已注册资源（会在启动时根据配置自动加载，且在热更新时重建）：
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "list_resources",
+    "arguments": {
+      "filter": { "type": "api", "labels": { "env": "prod" } },
+      "pagination": { "limit": 50, "offset": 0 }
+    }
+  }
+}
+```
+
+### 列出资源（CLI）
+
+提供 CLI 命令便于在本地检查资源目录：
+
+```bash
+mcp-server-client list-resources \
+  --config ./mcp.config.json \
+  --type api \
+  --loader remote \
+  --cap http.request \
+  --label env=prod \
+  --limit 20 --offset 0
+```
+
+输出为 JSON：包含 total、filtered、resources（简化字段）。
+
+### 热更新与资源重建
+
+- 设置 `MCP_WATCH_CONFIG=1` 或使用 `start -w` 启动
+- 当配置变更被解析成功时，服务器会自动重建资源注册表
+- 失败时保留上次资源集并记录告警
 
 ## MCP 传输方式详解
 
