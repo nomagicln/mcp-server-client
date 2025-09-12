@@ -1,0 +1,48 @@
+---
+- id: main-api
+  name: Main REST API
+  type: http-api
+  enabled: true
+  group: apis
+  metadata:
+    description: Primary REST API for the application
+    version: v2.1.0
+    environment: production
+    owner: api-team
+  connection:
+    url: https://api.example.com/v2
+    timeout: 30000
+    retries: 3
+  security:
+    authentication:
+      type: bearer
+      credentials:
+        token: "${API_TOKEN}"
+    encryption:
+      enabled: true
+      protocol: https
+  tags:
+    - api
+    - rest
+    - production
+
+- id: auth-service
+  name: Authentication Service
+  type: http-api
+  enabled: true
+  group: services
+  metadata:
+    description: OAuth2 authentication service
+    version: v1.0.0
+    environment: production
+  connection:
+    url: https://auth.example.com
+    timeout: 15000
+  security:
+    authentication:
+      type: certificate
+      certificatePath: /etc/ssl/certs/auth.pem
+  tags:
+    - auth
+    - oauth2
+    - security

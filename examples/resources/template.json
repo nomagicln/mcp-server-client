@@ -1,0 +1,34 @@
+{
+  "id": "resource-id",
+  "name": "Resource Name",
+  "type": "ssh-host",
+  "enabled": true,
+  "group": "default",
+  "metadata": {
+    "description": "Resource description",
+    "environment": "production|development|staging",
+    "owner": "team-name",
+    "version": "1.0.0"
+  },
+  "connection": {
+    "host": "hostname.example.com",
+    "port": 22,
+    "protocol": "ssh",
+    "timeout": 30000
+  },
+  "security": {
+    "authentication": {
+      "type": "key|password|certificate|token",
+      "keyPath": "~/.ssh/id_rsa",
+      "credentials": {
+        "username": "user",
+        "password": "${PASSWORD}"
+      }
+    },
+    "encryption": {
+      "enabled": true,
+      "protocol": "ssh2|tls|https"
+    }
+  },
+  "tags": ["tag1", "tag2", "tag3"]
+}

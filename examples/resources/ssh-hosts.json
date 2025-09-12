@@ -1,0 +1,58 @@
+[
+  {
+    "id": "prod-web-01",
+    "name": "Production Web Server 01",
+    "type": "ssh-host",
+    "enabled": true,
+    "group": "production",
+    "metadata": {
+      "description": "Primary web server in production environment",
+      "environment": "production",
+      "owner": "devops-team",
+      "region": "us-east-1"
+    },
+    "connection": {
+      "host": "web-01.prod.example.com",
+      "port": 22,
+      "protocol": "ssh",
+      "timeout": 30000
+    },
+    "security": {
+      "authentication": {
+        "type": "key",
+        "keyPath": "~/.ssh/prod_rsa"
+      },
+      "encryption": {
+        "enabled": true,
+        "protocol": "ssh2"
+      }
+    },
+    "tags": ["production", "web", "critical"]
+  },
+  {
+    "id": "dev-db-01",
+    "name": "Development Database Server",
+    "type": "ssh-host",
+    "enabled": true,
+    "group": "development",
+    "metadata": {
+      "description": "Development database server",
+      "environment": "development",
+      "owner": "dev-team"
+    },
+    "connection": {
+      "host": "db-01.dev.example.com",
+      "port": 2222,
+      "protocol": "ssh"
+    },
+    "security": {
+      "authentication": {
+        "type": "password",
+        "credentials": {
+          "username": "devuser"
+        }
+      }
+    },
+    "tags": ["development", "database"]
+  }
+]
